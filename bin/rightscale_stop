@@ -1,0 +1,7 @@
+#!/bin/bash
+
+source /opt/rightscale/bin/rightscale_functions
+
+check_invoking_user_permissions
+configure_proxy
+check_for_rightscale
