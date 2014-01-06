@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source /opt/rightscale/bin/rightscale_functions
+source /opt/rightscale/lib/rightscale_functions
 
 logger -t RightScale "RightScale RightLink decommission."
 
