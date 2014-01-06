@@ -53,7 +53,7 @@ function init_os_state() {
         export RS_DISTRO=suse
         export RS_BASE_OS=suse
         ;;
-      arch*)
+      Arch*|arch*)
         export RS_DISTRO=archlinux
         export RS_BASE_OS=archlinux
         ;;
