@@ -1,7 +1,47 @@
-#
+#!/bin/bash
 # Copyright (c) 2009-2011 by RightScale Inc., all rights reserved
 # Common utility functions used by RightScale shell scripts.
 #
+
+#############################################################################
+## NOTES FOR MAINTAINERS - SHELL COMPATIBILITY - PLEASE READ
+#############################################################################
+## This library of functions is designed to be compatible with a range of
+## Unix shells, including various versions of bash as well as ksh descendents
+## such as dash. Please respect our compatibility needs and follow these
+## rules:
+##
+##  - When performing integer tests, use C-style operators inside double-
+##    parentheses, like this:
+##       (( $joe >= 7 && $joe < 9))
+##    not this:
+##       [ $joe -ge 7 -a $joe -lt 9 ]
+##
+##  - When it is possible for a variable to be blank or undefined, use a
+##    construct that guards against expansion to the empty string. Some
+##    options:
+##       (( ${maybeempty:-0} < 1 )) # best for integer comparisons
+##       [ "$NAME" -ne "Joe" ]      # best for string comparisons
+##
+##  - Ensure that your variables have the right scope; make liberal use of
+##    the "local" keyword inside functions, and don't export variables
+##    without good reason.
+##
+##  - Document all of your functions, their arguments, and their return
+##    values.
+##
+
+#############################################################################
+## Global variables shared amongst the routines
+#############################################################################
+RIGHT_SCALE_BIN_DIR='/opt/rightscale/bin/'
+RIGHT_SCALE_PID_DIR='/opt/rightscale/var/run/'
+
+RIGHT_SCALE_AGENT_BIN='rnac'
+RIGHT_SCALE_AGENT_CMD="${RIGHT_SCALE_BIN_DIR}${RIGHT_SCALE_AGENT_BIN}"
+
+RIGHT_SCALE_CHECKER_BIN='rchk'
+RIGHT_SCALE_CHECKER_CMD="${RIGHT_SCALE_BIN_DIR}${RIGHT_SCALE_CHECKER_BIN}"
 
 #############################################################################
 ## Setup global environment variables used by most/all functions. Halt if
@@ -45,17 +85,13 @@ function init_os_state() {
         export RS_DISTRO=rhel
         export RS_BASE_OS=redhat
         ;;
-      EnterpriseEnterpriseServer*)
+      EnterpriseEnterpriseServer*|OracleServer*)
         export RS_DISTRO=oel
         export RS_BASE_OS=redhat
         ;;
       SUSE*)
         export RS_DISTRO=suse
         export RS_BASE_OS=suse
-        ;;
-      Arch*|arch*)
-        export RS_DISTRO=archlinux
-        export RS_BASE_OS=archlinux
         ;;
       *)
         export RS_DISTRO=unknown
@@ -285,22 +321,6 @@ function ensure_sane_hostname() {
 }
 
 ###############################################################################
-## Ensure that the sudoers file allows the rightscale user to sudo, and the
-## rightscale_sudo group as well.
-###############################################################################
-## accepts no arguments
-###############################################################################
-## returns nothing
-###############################################################################
-function ensure_sudo_privilege() {
-  if [ -z "$RS_ALREADY_BOOTED" ]; then
-    /opt/rightscale/bin/system --action sudoers 2>&1 | logger -st RightScale
-  else
-    echo "Sudoers NOPASSWD already enabled for this incarnation." | logger -st RightScale
-  fi
-}
-
-###############################################################################
 ## (Re)generate SSH host keys to ensure they are unique to this instance.
 ###############################################################################
 ## accepts no arguments
@@ -350,7 +370,7 @@ function ensure_fresh_ssh_host_key() {
 
 function attempt_patch_download {
   # best effort has quick connection timeout.
-  if [ "$5" -eq "0" ]; then
+  if (( $5 == 0 )); then
     local curl_opt="-s -S -f -L --connect-timeout 1 --retry 1"
   else
     local curl_opt="-s -S -f -L --retry 3"
@@ -358,30 +378,46 @@ function attempt_patch_download {
 
   # try to download the specific patch
   local cmd="curl $curl_opt -w '%{http_code}' -o $4 ${1}${2} 2> /dev/null"
-  res=`eval $cmd`
+  local res=`eval $cmd`
+  # paranoia: ensure res has a value so it can be integer-compared
+  res=${res:-0}
 
   # if we successfully downloaded the platform specific patch, then return
-  if [ "$res" -ge "200" -a "$res" -lt "300" ]; then
+  if (( $res >= 200 && $res < 300 )); then
     return 1
 
   # if the specific patch did not exist, then try to download the generic one
   # if we were not able to successfuly talk to the server, then return
-  elif [ "$res" -ge "400" -a "$res" -lt "500" ]; then
+  elif (( $res >= 400 && $res < 500 )); then
     cmd="curl $curl_opt -w '%{http_code}' -o $4 ${1}${3} 2> /dev/null"
     res=`eval $cmd`
+    res=${res:-0}
 
-    # return if we successfuly downlaoded the generic patch
-    if [ "$res" -ge "200" -a "$res" -lt "300" ]; then
+    if (( $res >= 200 && $res < 300 )); then
+      # we successfuly downloaded the generic patch
       return 1
-
-    # return if no patch was found
-    elif [ "$res" -ge "400" -a "$res" -lt "500" ]; then
+    elif (( $res >= 400 && $res < 500 )); then
+      # return if no patch was found
       return 0
     fi
   fi
   return 2
 }
 
+###############################################################################
+## Figure out which patchlevel RightLink is currently at
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns a positive integer patchlevel on standard out. doesn't return status
+###############################################################################
+function get_patchlevel {
+  if [ -f /opt/rightscale/etc/patchlevel ]; then
+    echo $(cat /opt/rightscale/etc/patchlevel)
+  else
+    echo 0
+  fi
+}
 
 ###############################################################################
 ## Determine if we need to download and install a patch and, if so, install it
@@ -407,13 +443,13 @@ function install_patch_if_needed {
 
   ## figure out the package version that's already installed
   if [ "$RS_BASE_OS" == "debian" ]; then
-    local rs_release=`dpkg-query -W -f='${Version}' rightscale`
-  elif [ "$RS_BASE_OS" == "redhat" ]; then
-    local rs_release=`rpm --query --qf %{version} rightscale`
+    local rs_release=`dpkg-query -W -f='${Version}' rightlink | cut -d "-" -f 1`
+  elif [ "$RS_BASE_OS" == "redhat" -o "$RS_BASE_OS" == "suse" ]; then
+    local rs_release=`rpm --query --qf %{version} rightlink`
   fi
 
   ## generate patch names
-  test -f /opt/rightscale/etc/patchlevel && local last_patch=`cat /opt/rightscale/etc/patchlevel` || local last_patch=0
+  local last_patch=$(get_patchlevel)
   let local next_patch=1+$last_patch
   local specific_patch="/${rs_release}/patch/${RS_DISTRO}/${RS_OS_VERSION}/${RS_ARCH}/${next_patch}.tgz"
   local generic_patch="/${rs_release}/patch/${next_patch}.tgz"
@@ -460,12 +496,14 @@ function install_patch_if_needed {
     for url in $url_list; do
       attempt_patch_download $url $specific_patch $generic_patch ${random_dir}/patch.tgz $1
       local res=$?
-      if [ "$res" -eq '0' -o "$res" -eq '1' ]; then break 2; fi
+      if [ "$res" == "0" -o "$res" == "1" ]; then
+        break 2;
+      fi
       logger -st RightScale "Could not get patchfile from $url"
     done
 
     # best effort case will try each url once and then quit for now.
-    if [ "$1" -eq '0' ]; then
+    if [ "$1" == "0" ]; then
       echo "Unable to contact any patch host on first pass."
       return 1
     fi
@@ -474,14 +512,14 @@ function install_patch_if_needed {
 
 
   # return 0 if we did not find a patch
-  if [ "$res" -eq "0" ]; then
+  if [ "$res" == "0" ]; then
     rm -rf $random_dir
     logger -st RightScale "No patchfile found for ${next_patch}.tgz"
     return 0
 
   # if we downloaded a patch, then apply it
-  elif [ "$res" -eq "1" ]; then
-    logger -st RightScale "Applying pathfile ${next_patch}.tgz"
+  elif [ "$res" == "1" ]; then
+    logger -st RightScale "Applying patchfile ${next_patch}.tgz"
     cd $random_dir
     tar -xzf patch.tgz
     chmod +x patch
@@ -491,16 +529,16 @@ function install_patch_if_needed {
     rm -rf $random_dir
 
     # if we ran the patch successfully, then recurse
-    if [ "$res" -eq "0" ]; then
+    if [ "$res" == "0" ]; then
       # make sure that the patchlevel was incremented before recursing
-      local patchlevel=`cat /opt/rightscale/etc/patchlevel`
-      if [ "$patchlevel" -ne "$next_patch" ]; then
+      local new_patchlevel=$(get_patchlevel)
+      if [ "$new_patchlevel" -ne "$next_patch" ]; then
         logger -st RightScale "Error: ${next_patch}.tgz did not increment /opt/rightscale/etc/patchlevel. Refusing to continue..."
         return 2
       fi
 
       logger -st RightScale "Successfully applied ${next_patch}.tgz. Checking for more patches..."
-      eval $FUNCNAME
+      eval $FUNCNAME $1
       return $?
     else
       logger -st RightScale "Error while installing ${next_patch}.tgz"
@@ -639,7 +677,7 @@ function change_motd() {
 
 function report_failure() {
   change_motd /opt/rightscale/etc/motd-failed
-  echo "RightScale installation failed. Please review /var/log/messages" | wall
+  echo "RightScale installation failed. Please review system logs" | wall
 }
 
 ###############################################################################
@@ -652,7 +690,7 @@ function report_failure() {
 
 function enroll_right_link_instance() {
   if [ -z "$RS_ALREADY_BOOTED" ]; then
-    rm -f /opt/rightscale/right_link/certs/*
+    rm -f /var/lib/rightscale/right_link/certs/*
   fi
 
   echo "Enrolling RightLink instance." | logger -st RightScale
@@ -663,7 +701,7 @@ function enroll_right_link_instance() {
   fi
 
   #Note that enroll script manages its own logging channel; piping output to logger is not required
-  /opt/rightscale/bin/enroll $die --root-dir /opt/rightscale/right_link --url $RS_RN_URL --host $RS_RN_HOST --id $RS_RN_ID --token $RS_RN_AUTH
+  /opt/rightscale/bin/enroll $die --root-dir /var/lib/rightscale/right_link --url $RS_RN_URL --host $RS_RN_HOST --id $RS_RN_ID --token $RS_RN_AUTH
 
   if [ $PIPESTATUS == 0 ]; then
     echo "Instance successfully enrolled." | logger -st RightScale
@@ -699,28 +737,6 @@ function deploy_right_link_agent() {
     echo "Agent has already been configured for this incarnation." | logger -st RightScale
   fi
 }
-
-###############################################################################
-## Install the RightLink services if required
-###############################################################################
-## depends on nothing
-###############################################################################
-## returns nothing
-###############################################################################
-
-function install_right_link_scripts() {
-  /opt/rightscale/right_link/bin/setup.sh 2>&1 | logger -t RightScale
-
-  if [ $PIPESTATUS == 0 ]; then
-    echo "RightLink script installation succeeded."
-    return 0
-  else
-    echo "RightLink script installation failed."
-    report_failure
-    exit 3
-  fi
-}
-
 
 ###############################################################################
 ## Enable core dumps for RightLink agent
@@ -790,7 +806,7 @@ function check_invoking_user_permissions() {
 }
 
 ###############################################################################
-## Start RightLink through monit
+## Start RightLink agent and checker
 ###############################################################################
 ## accepts no arguments
 ###############################################################################
@@ -798,31 +814,20 @@ function check_invoking_user_permissions() {
 ###############################################################################
 
 function start_right_link_agent() {
-  # Prime the pump; ensure monit's state/config dirs exist and that its
-  # config file has the right perms
-  mkdir -p /opt/rightscale/var/run
-  mkdir -p /opt/rightscale/var/lib/monit
-  mkdir -p /opt/rightscale/etc/monit.d
-  chmod 0700 /opt/rightscale/etc/monitrc
-
-  # Start monit daemon (no-op if daemon is already running)
-  /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc
-
-  # Make sure monit's HTTP interface is listening before we continue
-  local cmd="/opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status 2>&1 | grep -qiE 'monit daemon.*uptime'"
   logger -t "RightScale" "Starting RightLink"
   echo -n "Starting RightLink.."
-  while [ `eval $cmd ; echo \$?` -ne "0" ]; do
-    echo -n '.'
-    sleep 0.5
-  done
-  echo 'done'
 
-  # Tell monit to start RightLink & friend
-  /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc start instance
-  /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc start checker
+  # Crate PID dir if it doesn't exist
+  mkdir -p ${RIGHT_SCALE_PID_DIR}
+
+  # Start the checker, which will subsequently start
+  # the instance agent.
+  ${RIGHT_SCALE_CHECKER_CMD} --start
+
   mkdir -p /var/lock/subsys
   touch /var/lock/subsys/rightlink
+
+  echo 'done'
 }
 
 ###############################################################################
@@ -835,12 +840,12 @@ function start_right_link_agent() {
 
 function decommission_right_link_agent() {
   if [ -e /var/lock/subsys/rightlink ]; then
-    /opt/rightscale/bin/rnac --decommission 2>&1 | logger -st RightScale
+    ${RIGHT_SCALE_AGENT_CMD} --decommission 2>&1 | logger -st RightScale
   fi
 }
 
 ###############################################################################
-## Stop RightLink agent and checker through monit
+## Stop RightLink agent and checker
 ###############################################################################
 ## accepts no arguments
 ###############################################################################
@@ -848,56 +853,35 @@ function decommission_right_link_agent() {
 ###############################################################################
 
 function stop_right_link_agent() {
-  if [ -e /opt/rightscale/var/run/monit.pid ]; then
-    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc stop checker
-    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc stop instance
+  # We can not simply kill the instance agent or checker since there is a
+  # race condition where if the second killed process notices that the first
+  # is no longer running and respawns it we'll end up with both processes
+  # restarting eachother. Therefore, the stop command on the checker will
+  # first shutdown the instance agent and then exit itself.
+  ${RIGHT_SCALE_CHECKER_CMD} --stop
 
-    # Poll for RightLink process to finish via the ultra-high-tech expedient
-    # of looking for it to disappear from ps. Note that we need to filter out
-    # the ps process itself from the output in order to get an accurate
-    # result, hence the extra grep -v
-    local cmd="ps aux | grep rnac | grep -Ev 'ps|grep' | wc -l"
-    logger -t RightScale "Waiting for agent to quit"
-    echo -n "Waiting for agent to quit.."
-    while [ `eval $cmd` -gt "0" ]; do
-      echo -n '.'
-      sleep 0.5
-    done
-    echo 'done'
-
-    /opt/rightscale/sandbox/bin/monit -c  /opt/rightscale/etc/monitrc quit
-
-    # Poll for monit itself to go away
-    local cmd="/opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status 2>&1 | grep -qi 'monit daemon is not running'"
-    logger -t RightScale "Stopping RightLink"
-    echo -n "Stopping RightLink.."
-    while [ `eval $cmd ; echo \$?` -ne "0" ]; do
-      echo -n '.'
-      sleep 0.5
-    done
-    echo 'done'
-  fi
+  # Poll for RightLink process to finish via the ultra-high-tech expedient
+  # of looking for it to disappear from ps. Note that we need to filter out
+  # the ps process itself from the output in order to get an accurate
+  # result, hence the extra grep -v
+  local cmd="ps aux | grep ${RIGHT_SCALE_AGENT_BIN} | grep -Ev 'ps|grep' | wc -l"
+  logger -t RightScale "Waiting for agent to quit"
+  echo -n "Waiting for agent to quit.."
+  while [ `eval $cmd` -gt "0" ]; do
+    echo -n '.'
+    sleep 0.5
+  done
+  echo 'done'
 
   rm -f /var/lock/subsys/rightlink
-  rm -f /opt/rightscale/var/run/monit.pid
 }
 
 function check_right_link_agent_status() {
-  if [ -e /opt/rightscale/var/run/monit.pid ]; then
-    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status instance |
-      grep -EA 1 "Process.*instance" | grep -Eq "status.*running"
-    return $?
-  else
-    return 1
-  fi
+  ${RIGHT_SCALE_AGENT_CMD} --status | grep -E "is alive" > /dev/null 2>&1
+  return $?
 }
 
 function check_right_link_agent_checker_status() {
-  if [ -e /opt/rightscale/var/run/monit.pid ]; then
-    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status checker |
-      grep -EA 1 "Process.*checker" | grep -Eq "status.*running"
-    return $?
-  else
-    return 1
-  fi
+  pgrep -f ${RIGHT_SCALE_CHECKER_BIN} > /dev/null 2>&1
+  return $?
 }
