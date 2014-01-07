@@ -1,0 +1,25 @@
+#!/bin/bash
+
+target="rs_reenroll"
+right_scale_prefix='/opt/rightscale'
+right_link_prefix="${right_scale_prefix}/right_link"
+sandbox_prefix="${right_scale_prefix}/sandbox"
+
+# RVM/RBenv can cause things to go a little haywire
+# if they're being used unless we do this.
+unset -v GEM_HOME GEM_PATH
+
+cd ${right_link_prefix}
+if [ -f Gemfile ]
+then
+   # Tarball mode: RightLink is using a Gemfile to manage dependencies
+   # Use sandbox/bin version of the binstub.  The binstubs in the gem subdirs
+   # are linked to wrong ruby (/usr/bin/env ruby) though the binstubs in
+   # sandbox/bin are correct. This doesn't seem overridable via gem or
+   # bundler options.  
+   exec ${sandbox_prefix}/bin/bundle exec ${sandbox_prefix}/bin/$target "$@"
+else
+   # Release mode: RightLink is relying on a sandboxed Ruby interpreter
+   # that contains all gem dependencies preinstalled.
+   exec ${sandbox_prefix}/bin/$target "$@"
+fi
