@@ -1,0 +1,6 @@
+#!/bin/bash -e
+
+logger -t RightScale "RightLink restart."
+
+rightlink_stop
+rightlink_start
