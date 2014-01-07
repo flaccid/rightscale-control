@@ -1,0 +1,26 @@
+#!/bin/bash
+
+source /opt/rightscale/lib/rightscale_functions
+
+check_invoking_user_permissions
+
+check_right_link_agent_status
+local agent_status=$?
+check_right_link_agent_checker_status
+local checker_status=$?
+
+if [ ${agent_status} == ${checker_status} ]; then
+  if [ ${agent_status} == 0 ]; then
+    echo "The RightLink agent and checker are running"
+    return 0
+  else
+    echo "The RightLink agent and checker are not running"
+  fi
+else
+  if [ ${agent_status} == 0 ]; then
+    echo "The RightLink agent is running, but not the checker"
+  else
+    echo "The RightLink agent is not running, but the checker is"
+  fi
+fi
+return 1

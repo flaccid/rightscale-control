@@ -1,17 +1,11 @@
 #!/bin/bash
 
+# Use resume to avoid resetting the cloud state
+
 source /opt/rightscale/lib/rightscale_functions
 
-logger -t RightScale "Rightscale Service start."
+logger -t RightScale "RightLink service resume."
 
-check_invoking_user_permissions
-status > /dev/null
-running=$?
-if [ $running -eq 0 ]; then
-  echo "RightLink is already running"
-  exit 1
-fi
-init_cloud_state 0
 check_invoking_user_permissions
 init_os_state
 check_for_rightscale
