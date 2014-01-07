@@ -1,0 +1,11 @@
+# The rightscale_sudo group contains every user who has superuser privileges
+# as determined by their RightScale account permissions. RightLink updates
+# this group in near-realtime as users' roles evolve over time.
+#
+# By default, anyone in this group can sudo any command and TTY is not required
+# (to support ssh -c).
+#
+# Feel free to customize these rules as you see fit.
+#
+%rightscale_sudo ALL=NOPASSWD: ALL
+Defaults:%rightscale_sudo !requiretty

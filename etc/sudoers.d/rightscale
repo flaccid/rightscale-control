@@ -1,0 +1,3 @@
+# RightScale: please leave these rules in place, else RightLink may not function
+rightscale ALL=(ALL)NOPASSWD: /usr/bin/useradd,/usr/sbin/useradd,/bin/useradd,/sbin/useradd,/usr/bin/usermod,/usr/sbin/usermod,/bin/usermod,/sbin/usermod,/bin/chmod,/bin/tar,/usr/bin/unzip,/bin/mv,/bin/chown,/bin/sh,/bin/bash
+Defaults:rightscale !requiretty
