@@ -1,7 +1,7 @@
 rightscale-control
 ==================
 
-Scripts for system and service control of RightScale RightLink.
+Scripts for system and service control of RightScale RightLink including binstubs.
 
 Upstream Files
 --------------
@@ -25,6 +25,19 @@ To refresh:
  $ cd right_link_package
  $ git checkout v5.9.5
  $ cd .. && ./copy-upstream-files.sh
+
+
+/usr/bin/rs_reenroll
+/usr/bin/rs_thunk
+/usr/bin/rs_run_recipe
+/usr/bin/rs_run_right_script
+/usr/bin/rs_connect
+/usr/bin/rs_state
+/usr/bin/rs_log_level
+/usr/bin/rs_ohai
+/usr/bin/rs_tag
+/usr/bin/rs_shutdown
+
 
 LICENSE
 -------
