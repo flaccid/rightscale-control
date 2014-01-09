@@ -5,7 +5,7 @@ source /opt/rightscale/lib/rightscale_functions
 logger -t RightScale "RightLink service start."
 
 check_invoking_user_permissions
-status > /dev/null
+rightlink_status > /dev/null
 running=$?
 if [ $running -eq 0 ]; then
   echo "RightLink is already running"
