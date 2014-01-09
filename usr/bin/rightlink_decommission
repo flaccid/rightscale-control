@@ -2,7 +2,7 @@
 
 source /opt/rightscale/lib/rightscale_functions
 
-logger -t RightScale "RightScale RightLink decommission."
+logger -t RightScale "RightLink service decommission."
 
 check_invoking_user_permissions
 check_for_rightscale
