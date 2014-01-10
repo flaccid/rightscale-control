@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash
 
 # Use resume to avoid resetting the cloud state
 
